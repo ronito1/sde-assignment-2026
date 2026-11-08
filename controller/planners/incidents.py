@@ -76,6 +76,8 @@ class IncidentPlanner:
         if m.now < 0:
             return []
         inc = self._open(m, wid)
+        if inc is None and m.s.get(f"check_prompt:{wid}") is not None:
+            return self._check_new_prompt(m, wid)
         if inc is None:
             return self._detect(m, wid)
         if inc["state"] == "VERIFYING":
@@ -97,7 +99,10 @@ class IncidentPlanner:
         if n < settings.HALLUC_MIN_CONN:
             return []
         p = binom_sf(k, n, b)
-        if p < settings.HALLUC_P and k / n >= settings.HALLUC_MIN_RATIO * b:
+        # Without a prompt change to explain it, the rolling window is re-tested every iteration on every
+        # workflow (thousands of looks per scenario), so it needs a far smaller p to keep false alarms rare.
+        p_need = settings.HALLUC_P if since > -10 ** 9 else settings.HALLUC_P_ROLLING
+        if p < p_need and k / n >= settings.HALLUC_MIN_RATIO * b:
             ev = {"prompt": pv, "flags": k, "connects": n, "rate": round(k / n, 4), "baseline": round(b, 4),
                   "p_value": p, "since": m.fmt(since) if since > -10 ** 9 else "rolling window"}
             iid = f"{wid}:halluc:{m.now}"
@@ -207,9 +212,7 @@ class IncidentPlanner:
         return intent(KEY, self.kind, [("prompt", pv)], ["prompt_version"], "incident", auto_ok=False,
                       summary=f"Fix hallucinations: switch prompt {inc['suspect']} → {pv}",
                       diff={"prompt_version": {"from": inc["suspect"], "to": pv}},
-                      rationale=(f"Since {ev.get('since')}, {ev.get('flags')}/{ev.get('connects')} connected calls on "
-                                 f"{inc['suspect']} were flagged ({ev.get('rate'):.1%}) vs a {ev.get('baseline'):.1%} "
-                                 f"baseline (p={ev.get('p_value'):.1e}). {pv} passed validation at "
+                      rationale=(self._evidence_text(inc) + f" {pv} passed validation at "
                                  f"{val['pass_rate']:.3f} on {val['n']} conversations and has a normal live flag "
                                  f"record ({live['flags']}/{live['connects']})."
                                  + (" This reverses a supervisor's prompt edit; it is proposed, never forced."
@@ -220,6 +223,17 @@ class IncidentPlanner:
                       evidence={"incident": inc["iid"], "validation": val},
                       validation_run_id=val["validation_run_id"],
                       meta={"iid": inc["iid"], "prompt": pv})
+
+    @staticmethod
+    def _evidence_text(inc) -> str:
+        ev = inc["evidence"]
+        if ev.get("validation") and ev.get("p_value") is None:
+            v = ev["validation"]
+            return (f"{inc['suspect']} (live since {ev.get('since')}) failed validation: pass rate {v['pass_rate']} on "
+                    f"{v['n']} synthetic conversations ({v['validation_run_id']}).")
+        return (f"Since {ev.get('since')}, {ev.get('flags')}/{ev.get('connects')} connected calls on {inc['suspect']} "
+                f"were flagged ({ev.get('rate'):.1%}) vs a {ev.get('baseline'):.1%} baseline "
+                f"(p={ev.get('p_value'):.1e}).")
 
     def _supervisor_made(self, m, wid, inc) -> bool:
         r = m.s.q1("SELECT actor FROM config_versions WHERE wid=? AND minute=? ORDER BY version DESC LIMIT 1",
@@ -274,4 +288,47 @@ class IncidentPlanner:
         m.s.decide(m.now, wid, "incident_fix_not_applied", f"fix proposal {state}; will re-propose", {"state": state})
 
     def supervisor_edit(self, m: Model, wid: str, dims: list[str], version: int):
-        pass
+        if "prompt_version" in dims:
+            m.s.put(f"check_prompt:{wid}", version)
+
+    def _check_new_prompt(self, m, wid):
+        """A supervisor shipped a prompt. If it has no clean live record, one validation run (3 credits) tells us
+        within the hour whether it is unsafe, instead of waiting hours for live hallucination flags. This is
+        the credit spend that changes a decision (CTO memo)."""
+        pv = m.cfg[wid]["config"]["prompt_version"]
+        with m.s.tx():
+            m.s.put(f"check_prompt:{wid}", None)
+        k, n, _ = self.rate(m, wid, pv)
+        kh, nh = self._hist_rate(m, wid, pv)
+        if n + nh >= 1000 and binom_sf(k + kh, n + nh, self.baseline(m, wid)) > 0.01:
+            return []
+        cost = (settings.VALIDATION_N + 99) // 100
+        if self._credits(m) < cost:
+            return []
+        try:
+            val = m.c.validate(wid, pv, settings.VALIDATION_N)
+        except SimError:
+            return []
+        need = m.wf[wid]["governance"].get("min_validation_pass_rate", 0.97)
+        since = self.prompt_since(m, wid)
+        with m.s.tx():
+            m.s.db.execute("INSERT INTO credits(minute, wid, kind, cost, ref, result) VALUES(?,?,?,?,?,?)",
+                           (m.now, wid, "validation_run", cost, f"supervisor prompt {pv}", json.dumps(val)))
+            m.s.decide(m.now, wid, "validation_run", f"supervisor's new prompt {pv}: pass rate {val['pass_rate']} "
+                       f"(approval needs {need})", val)
+            if val["pass_rate"] >= need:
+                return []
+            ev = {"prompt": pv, "source": "validation of a newly shipped prompt", "validation": val,
+                  "flags": k, "connects": n, "rate": round(1 - val["pass_rate"], 4),
+                  "baseline": round(self.baseline(m, wid), 4), "p_value": None, "since": m.fmt(since)}
+            iid = f"{wid}:halluc:{m.now}"
+            m.s.db.execute("INSERT INTO incidents(iid, wid, kind, state, opened_minute, since_minute, suspect, "
+                           "evidence, fix) VALUES(?,?,?,?,?,?,?,?,?)",
+                           (iid, wid, "hallucination", "OPEN", m.now, since, pv, json.dumps(ev),
+                            json.dumps({"tried": [], "validations": {pv: val}})))
+            m.s.decide(m.now, wid, "incident_opened", f"supervisor's prompt {pv} failed validation "
+                       f"({val['pass_rate']} < {need} on {val['n']} conversations)", ev)
+            m.s.alert(m.now, "page", wid, "hallucination_incident",
+                      f"{wid}: newly shipped prompt {pv} failed validation ({val['pass_rate']})",
+                      f"python -m controller why --workflow {wid}; a fix is being proposed")
+        return self._fix(m, wid, self._open(m, wid))

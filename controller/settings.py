@@ -51,9 +51,10 @@ DID_MIN_EXP_GAIN = 0.01      # only rebalance for >= 1% estimated pickup gain
 DID_PLAN_WINDOW_MIN = 24 * 60
 
 # ---------------------------------------------------------------- incidents / credits
-HALLUC_MIN_CONN = 300        # connects since the suspect change (or in the rolling window) before judging
+HALLUC_MIN_CONN = 150        # connects since the suspect change (or in the rolling window) before judging
 HALLUC_WINDOW_CONN = 800     # rolling window for drift detection without a config change
-HALLUC_P = 1e-3              # binomial tail p-value threshold
+HALLUC_P = 1e-3              # binomial tail p-value threshold after a prompt change (one suspect, few looks)
+HALLUC_P_ROLLING = 1e-6      # with no change to suspect: many overlapping looks, so much stricter
 HALLUC_MIN_RATIO = 1.8       # and the flag rate must be at least this multiple of the history baseline
 VALIDATION_N = 300           # 3 credits; enough to separate ~0.99 from <0.97 most of the time
 CREDIT_RESERVE_SHARE = 0.40  # never spend the last 40% of credits on anything but an open incident

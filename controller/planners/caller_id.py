@@ -94,7 +94,7 @@ class CallerIdPlanner:
                 step = stepped(m, wid, "default", "caller_id", target, auto)
                 ev = {d: h6.get(d) for d in flagged}
                 return [intent("did:flag", self.kind, [("alloc", "default", "caller_id", step)], ["caller_id"],
-                               "safety" if auto else "incident", auto_ok=True,
+                               "incident", auto_ok=True,
                                summary=f"Move calls off unhealthy caller ID(s) {sorted(flagged)}",
                                diff={"caller_id": {"from": cur, "to": step}},
                                rationale="Pickup on these numbers collapsed against peers dialled in the same hours "
@@ -118,8 +118,6 @@ class CallerIdPlanner:
         if not new_probes and est_new - est_cur < settings.DID_MIN_EXP_GAIN * max(est_cur, 1e-9):
             return []
         step = stepped(m, wid, "default", "caller_id", target, auto)
-        with m.s.tx():
-            m.s.put(f"did_rebalance_at:{wid}", m.now)
         h24 = health(m, wid, m.now - settings.DID_PLAN_WINDOW_MIN, prior=60)
         return [intent("did:rebalance", self.kind, [("alloc", "default", "caller_id", step)], ["caller_id"],
                        "routine", auto_ok=True,
@@ -191,6 +189,8 @@ class CallerIdPlanner:
                 "expected_relative_pickup_after": round(self._exp_health(m, wid, new), 4)}
 
     def applied(self, m: Model, wid: str, it: dict, version: int):
+        # cooldown starts when a split goes live, not when it is merely wanted (a held intent must not reset it)
+        m.s.put(f"did_rebalance_at:{wid}", m.now)
         m.s.decide(m.now, wid, "caller_id_live", f"caller-ID split live in v{version}", it["diff"])
 
     def failed(self, m: Model, wid: str, it: dict, state: str):

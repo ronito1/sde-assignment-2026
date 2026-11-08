@@ -129,8 +129,8 @@ class Governance:
         auto, appr = [], []
         for it in intents:
             if it.get("auto_ok") and policy.can_auto(wf, it["dims"]):
-                if busy and it["urgency"] == "routine":
-                    continue   # would make the in-flight approval stale; wait
+                if busy and it["urgency"] != "incident":
+                    continue   # would make the in-flight approval stale; only incident-level changes overtake
                 auto.append(it)
             else:
                 appr.append(it)
