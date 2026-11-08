@@ -1,6 +1,6 @@
 # Outcome-First Agent Loop — Submission
 
-**Name:** _(fill in)_ · **Date:** _(fill in)_ · **Hours actually spent (be honest):** _(fill in)_ ·
+**Name:** Ronit Pathak · **Date:** 2026-11-08 · **Hours actually spent (be honest):** ~6 h ·
 **Language / storage:** Python 3.10+ (numpy, httpx) / one SQLite file in WAL mode (no new services)
 
 > Runbook for whoever is on call: [`docs/CONTROLLER.md`](docs/CONTROLLER.md). Code: [`controller/`](controller/).
