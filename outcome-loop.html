@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Outcome Loop Controller</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&family=JetBrains+Mono:wght@400;600&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+/* Layout: one narrow column of diagram cards; light theme only, by request. */
+:root {
+  --bg: #f4f7f9; --card: #ffffff; --ink: #17212c; --muted: #5b6875; --line: #d6dee5;
+  --accent: #0d6b6b; --accent-soft: #e2f0ef;
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 16px; line-height: 1.5; }
+.wrap { max-width: 1000px; margin: 0 auto; padding-block: 36px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 28px; }
+h1 { font-family: var(--f-display); font-weight: 800; font-size: clamp(1.8rem, 4.5vw, 2.6rem); margin: 0; text-wrap: balance; }
+h2 { font-family: var(--f-display); font-weight: 700; font-size: 1.2rem; margin: 0; display: flex; gap: 10px; align-items: baseline; }
+h2 span { font-family: var(--f-mono); font-size: 0.75rem; color: var(--accent); letter-spacing: 0.08em; }
+.sub { color: var(--muted); margin: 0; max-width: 65ch; }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.dia { overflow-x: auto; background: var(--accent-soft); border-radius: 8px; padding: 14px 16px; }
+.dia pre { margin: 0; font-family: var(--f-mono); font-size: 12.5px; line-height: 1.45; color: var(--ink); white-space: pre; }
+.note { color: var(--muted); margin: 0; font-size: 0.95rem; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 620px; font-size: 0.95rem; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--f-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 600; white-space: nowrap; }
+code { font-family: var(--f-mono); font-size: 0.85em; color: var(--accent); }
+.brief { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+@media (max-width: 760px) { .brief { grid-template-columns: minmax(0, 1fr); } }
+.brief > div { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.brief h3 { font-family: var(--f-display); font-size: 0.95rem; margin: 0; color: var(--accent); }
+.brief p { margin: 0; font-size: 0.95rem; }
+.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chips li { font-family: var(--f-mono); font-size: 0.8rem; background: var(--accent-soft); color: var(--accent); padding: 3px 9px; border-radius: 999px; }
+</style>
+</head>
+<body style="margin:0">
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:8px">
+    <h1>Outcome Loop Controller</h1>
+    <p class="sub">Watch what happened → decide → get permission → apply → check → record why. +15–31% leads concluded, 0 harmful changes.</p>
+  </header>
+
+  <section>
+    <h2><span>0</span>The brief</h2>
+    <div class="brief">
+      <div>
+        <h3>Problem</h3>
+        <p>Formi runs outbound voice agents for insurers and lenders. Today a human sets each agent's welcome message, voice, caller ID, prompt and call hours once and rarely revisits them. Two KPIs matter and are never blended: <b>pickup rate</b> and <b>engagement rate</b>.</p>
+      </div>
+      <div>
+        <h3>What had to be built</h3>
+        <p>An always-on controller that, for every workflow, <b>detects</b> drift, <b>experiments</b>, <b>proposes</b> changes through client approval, <b>applies and rolls back</b> safely, and <b>explains</b> every change. It must survive crashes, respect supervisor edits and never bypass governance.</p>
+      </div>
+      <div>
+        <h3>Tech used</h3>
+        <ul class="chips">
+          <li>Python 3</li><li>numpy</li><li>httpx</li><li>SQLite (WAL)</li><li>pytest</li><li>bash scripts</li>
+        </ul>
+        <p class="note">One process, one SQLite file, no new services. Talks to the simulator over HTTP only.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span>1</span>The big picture</h2>
+    <div class="dia"><pre>
+ ┌─────────────────────── SIMULATOR (the "real world", given to you) ───────────────────────┐
+ │  leads · dialler · people who pick up or not · client approvers · supervisors · fake LLM  │
+ └───────▲─────────────────────┬───────────────────────────────▲─────────────────────▲──────┘
+         │ "move time 15 min"  │ what happened (call events)   │ change requests     │ prompt checks
+         │                     ▼                               │                     │
+ ┌───────┴──────────────────── YOUR CONTROLLER ────────────────┴─────────────────────┴──────┐
+ │                                                                                           │
+ │   1. INGEST ──▶ 2. REACT ──▶ 3. APPLY APPROVED ──▶ 4. THINK ──▶ 5. ASK / APPLY ──▶ 6. ADVANCE │
+ │       ▲                                                                              │    │
+ │       └──────────────────────────────── repeat every 15–60 sim-minutes ◀─────────────┘    │
+ │                                                                                           │
+ │                         everything written to ONE SQLite file (the memory)                │
+ └───────────────────────────────────────────────────────────────────────────────────────────┘</pre></div>
+    <p class="note">Time only moves when the controller says "advance".</p>
+  </section>
+
+  <section>
+    <h2><span>2</span>One loop, step by step</h2>
+    <div class="dia"><pre>
+ ┌────────────────────────────────────────────────────────────┐
+ │ 1. INGEST            model.py                              │
+ │ Download new events. Save them + "how far I've read"       │
+ │ in ONE transaction → a crash never loses or double-counts. │
+ └──────────────────────────┬─────────────────────────────────┘
+                            ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │ 2. REACT to config changes                                 │
+ │ Supervisor edited something? → respect it, never undo it   │
+ │ → end any test on that setting → new prompt? check it now  │
+ └──────────────────────────┬─────────────────────────────────┘
+                            ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │ 3. POLL APPROVALS    governance.py                         │
+ │ Approved? → apply immediately (within 2h or it lapses)     │
+ └──────────────────────────┬─────────────────────────────────┘
+                            ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │ 4. THINK — four planners                                   │
+ │   incidents · caller ID (every step)                       │
+ │   call times · experiments (hourly)  → "intents"           │
+ └──────────────────────────┬─────────────────────────────────┘
+                            ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │ 5. GOVERNANCE — the gatekeeper                             │
+ │ Bundle intents into one change, then:                      │
+ │   allowed to auto-apply? ──yes──▶ apply it now             │
+ │                          └─no──▶ send ONE approval request │
+ │ Checks: right hours, daily limit, valid config.            │
+ └──────────────────────────┬─────────────────────────────────┘
+                            ▼
+ ┌────────────────────────────────────────────────────────────┐
+ │ 6. ADVANCE: 15 min if something pending, else 60;          │
+ │ skip the night. Repeat until the scenario ends.            │
+ └────────────────────────────────────────────────────────────┘</pre></div>
+  </section>
+
+  <section>
+    <h2><span>3</span>The four planners</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>Planner</th><th>Problem</th><th>What it does</th><th>KPI</th></tr></thead>
+      <tbody>
+        <tr><td>Call time <code>schedule.py</code></td><td>Seniors answer mornings, young people evenings</td><td>Calls each age group in its best hours</td><td>Pickup</td></tr>
+        <tr><td>Caller ID <code>caller_id.py</code></td><td>Numbers get spam-flagged or wear out</td><td>Moves traffic off bad numbers, spreads load, probes new ones at 3%</td><td>Pickup</td></tr>
+        <tr><td>Experiments <code>experiments.py</code></td><td>Is W2 better than W1? V4 than V1?</td><td>Tests on 30% of calls, promotes winners, rolls back faders</td><td>Engagement</td></tr>
+        <tr><td>Incidents <code>incidents.py</code></td><td>A prompt starts hallucinating</td><td>Detects, validates a fix, asks approval, verifies</td><td>Safety</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2><span>4</span>Life of an experiment</h2>
+    <div class="dia"><pre>
+  LAUNCH (needs approval)          70% control  ·  30% split across alternatives
+     │
+     ▼
+  RUNNING ── every 6h: is an alternative clearly WORSE? ──▶ drop it (safe, automatic)
+     │
+     │ once a day: is one clearly BETTER (statistically, with ≥250 calls)?
+     ▼
+  PROMOTED (needs approval)        85% winner  ·  15% old control kept as a "holdout"
+     │
+     │ watch: is the winner fading?
+     ▼
+  DEMOTED to 50/50 (half the risk, and a fairer comparison)
+     │
+     ├── winner still clearly better ──▶ back to PROMOTED
+     └── winner no better ─────────────▶ ROLLED BACK to the old control, winner banned</pre></div>
+  </section>
+
+  <section>
+    <h2><span>5</span>Life of an incident <span>public_02</span></h2>
+    <div class="dia"><pre>
+ D3 11:30  Supervisor ships prompt P2
+ D3 12:00  Controller validates P2 → passes only 93.7% (needs 97%) → INCIDENT
+           Finds previous prompt P1 → validates → 99% ✓
+           Sends approval request: "switch P2 → P1", with evidence
+ D3 13:36  Client approver says yes
+ D3 14:00  Applied
+ D3 15:30  Verified: hallucinations back to normal, engagement unchanged → RESOLVED
+           Total: 150 minutes, 6 credits</pre></div>
+  </section>
+
+  <section>
+    <h2><span>6</span>How a change request travels</h2>
+    <div class="dia"><pre>
+  PREPARED ──send──▶ PENDING ──▶ APPROVED ──apply──▶ APPLIED ✓
+  (saved to disk         │           │
+   BEFORE sending)       │           └─ config changed meanwhile ─▶ STALE → re-plan fresh
+                         ├─▶ REJECTED → wait 12h before asking again
+                         └─▶ EXPIRED  → treat as rejected, re-plan with fresh data</pre></div>
+    <p class="note">Saved before sending, so after a crash nothing is sent twice or forgotten.</p>
+  </section>
+</div>
+</body>
+</html>
