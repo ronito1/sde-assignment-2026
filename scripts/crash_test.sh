@@ -4,7 +4,7 @@
 #   scripts/crash_test.sh scenarios/public_02_incidents.yaml [port] [random_kills]
 set -uo pipefail
 cd "$(dirname "$0")/.."
-SC="$1"; PORT="${2:-8790}"; KILLS="${3:-6}"
+SC="$1"; PORT="${2:-8790}"; KILLS="${3:-8}"
 NAME="crash_$(basename "$SC" .yaml)"
 PY=.venv/bin/python
 DB="state/$NAME.db"
@@ -30,7 +30,7 @@ echo "== $KILLS random SIGKILLs" | tee -a "$LOG"
 for i in $(seq 1 "$KILLS"); do
   CONTROLLER_DB="$DB" ./run.sh "$URL" >> "$LOG" 2>&1 &
   CTL=$!
-  sleep "$($PY -c 'import random; print(round(random.uniform(0.4, 2.5), 2))')"
+  sleep "$($PY -c 'import random; print(round(random.uniform(0.3, 1.0), 2))')"
   kill -9 $CTL 2>/dev/null && echo "  kill -9 #$i at $(minute)" | tee -a "$LOG"
   wait $CTL 2>/dev/null
 done

@@ -1,0 +1,36 @@
+== fault injection: crash right after writing an outbox row, before the HTTP call
+  run 1 exited 137 at 2027-01-04T09:00:00+05:30 False
+  run 2 exited 137 at 2027-01-04T11:00:00+05:30 False
+  run 3 exited 137 at 2027-01-05T11:30:00+05:30 False
+== fault injection: crash just before advancing time
+  exited 137 at 2027-01-06T16:15:00+05:30 False
+== 8 random SIGKILLs
+  kill -9 #1 at 2027-01-07T12:00:00+05:30 False
+  kill -9 #2 at 2027-01-07T13:00:00+05:30 False
+  kill -9 #3 at 2027-01-07T13:00:00+05:30 False
+  kill -9 #4 at 2027-01-07T13:00:00+05:30 False
+  kill -9 #5 at 2027-01-07T13:00:00+05:30 False
+  kill -9 #6 at 2027-01-07T21:00:00+05:30 False
+  kill -9 #7 at 2027-01-08T12:15:00+05:30 False
+  kill -9 #8 at 2027-01-08T15:45:00+05:30 False
+== final run to completion
+  exited 0 at 2027-01-14T00:00:00+05:30 True
+PASS scenario finished (2027-01-14T00:00:00+05:30)
+PASS no proposal left in PREPARED (outbox drained)
+PASS nw_renewal: no proposal applied twice (14 controller versions)
+PASS nw_renewal: every applied change is in our store
+PASS nw_renewal: our record of each applied version matches the server
+PASS nw_renewal: no approval lost (6 on server)
+PASS nw_renewal: every server-applied approval is APPLIED in our store
+PASS nw_kyc: no proposal applied twice (2 controller versions)
+PASS nw_kyc: every applied change is in our store
+PASS nw_kyc: our record of each applied version matches the server
+PASS nw_kyc: no approval lost (3 on server)
+PASS nw_kyc: every server-applied approval is APPLIED in our store
+PASS ks_cancel: no proposal applied twice (12 controller versions)
+PASS ks_cancel: every applied change is in our store
+PASS ks_cancel: our record of each applied version matches the server
+PASS ks_cancel: no approval lost (3 on server)
+PASS ks_cancel: every server-applied approval is APPLIED in our store
+controller starts recorded: 10
+| ALL | 0.430 | +29.9% | 0.274 | +25.0% | 0.541 | +1.6% | 22% | 221 (431) |

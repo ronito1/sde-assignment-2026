@@ -25,6 +25,11 @@ def parse_when(s: str) -> int:
     return int(day.lstrip("Dd")) * MIN_PER_DAY + int(h) * 60 + int(mi)
 
 
+def _short(o, n=600) -> str:
+    t = json.dumps(o, separators=(",", ":"), default=str)
+    return t if len(t) <= n else t[:n] + "…"
+
+
 def _db(path):
     db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     return db
@@ -57,8 +62,7 @@ def why(path: str, wid: str, when: str | None) -> str:
             L += [f"**Rationale:** {body.get('rationale')}", ""]
             if body.get("impact_score") is not None:
                 L.append(f"**Impact score:** {body['impact_score']} · **affected leads:** {body.get('affected_leads')}")
-            L += ["", "**Diff:**", "```", json.dumps(body.get("diff"), indent=1)[:3000], "```",
-                  "**Dry run:**", "```", json.dumps(body.get("dry_run"), indent=1)[:3000], "```"]
+            L += ["", f"**Diff:** `{_short(body.get('diff'))}`", "", f"**Dry run:** `{_short(body.get('dry_run'))}`"]
             if route == "approval":
                 L.append(f"Approved by the workflow's client approver (approval `{aid}`); reasons on decision: "
                          f"{reasons or '[]'}")
