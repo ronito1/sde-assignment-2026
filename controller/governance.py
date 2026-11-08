@@ -179,7 +179,13 @@ class Governance:
                 continue
             body = {"base_version": cur["version"], "proposed_config": new,
                     "rationale": " | ".join(i["rationale"] for i in g),
-                    "evidence": {i["kind"]: i.get("evidence") for i in g}}
+                    "evidence": {i["kind"]: i.get("evidence") for i in g},
+                    # kept for our audit trail only; not part of the PUT contract
+                    "audit": {"change_summary": "; ".join(i["summary"] for i in g),
+                              "diff": {i["kind"]: i["diff"] for i in g},
+                              "dry_run": {i["kind"]: i["dry_run"] for i in g},
+                              "affected_leads": int(max(i.get("affected", 0) for i in g)),
+                              "urgency": max((i["urgency"] for i in g), key=["routine", "safety", "incident"].index)}}
             pid = self._prepare(wid, "auto", g, body)
             self._send_auto(pid)
             for i in g:
@@ -190,7 +196,7 @@ class Governance:
         row = self.s.q1("SELECT wid, body, intents FROM proposals WHERE pid=?", (pid,))
         wid, body, intents = row[0], json.loads(row[1]), json.loads(row[2])
         try:
-            r = self.c.auto_apply(wid, {"proposal_id": pid, **body})
+            r = self.c.auto_apply(wid, {"proposal_id": pid, **{k: v for k, v in body.items() if k != "audit"}})
         except SimError as e:
             if e.code == "duplicate_proposal_id":
                 return self._reconcile_auto(pid)

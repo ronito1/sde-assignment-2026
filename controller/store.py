@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS credits(id INTEGER PRIMARY KEY AUTOINCREMENT, minute 
 CREATE TABLE IF NOT EXISTS decisions(id INTEGER PRIMARY KEY AUTOINCREMENT, minute INT, wid TEXT, kind TEXT,
     summary TEXT, data TEXT, pid TEXT);
 CREATE INDEX IF NOT EXISTS decisions_wid ON decisions(wid, minute);
+CREATE INDEX IF NOT EXISTS leads_wid_minute ON leads(wid, minute);
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, minute INT, severity TEXT, wid TEXT,
     code TEXT, message TEXT, look_at TEXT);
 CREATE TABLE IF NOT EXISTS metrics(id INTEGER PRIMARY KEY AUTOINCREMENT, minute INT, wall REAL,

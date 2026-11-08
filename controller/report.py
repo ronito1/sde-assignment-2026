@@ -48,6 +48,7 @@ def why(path: str, wid: str, when: str | None) -> str:
         if p:
             route, state, body, intents, aid, sub, dec, app, reasons = p
             body = json.loads(body)
+            body = {**body.get("audit", {}), **body}
             L += [f"- proposal `{pid}` via **{route}**" + (f", approval `{aid}`" if aid else " (policy auto-apply)"),
                   f"- submitted {fmt(sub)}, decided {fmt(dec)}, applied {fmt(app)}; final state {state}",
                   "", "## What and why", ""]
@@ -139,7 +140,8 @@ def view(path: str, wid_filter: str | None = None) -> str:
             L.append("- none")
         for v, a, d, mi in ch:
             p = db.execute("SELECT body FROM proposals WHERE wid=? AND applied_version=?", (wid, v)).fetchone()
-            summ = (json.loads(p[0]).get("change_summary") or json.loads(p[0]).get("rationale", "")[:120]) if p else ""
+            pb = json.loads(p[0]) if p else {}
+            summ = (pb.get("change_summary") or pb.get("audit", {}).get("change_summary") or "") if p else ""
             L.append(f"- {fmt(mi)} v{v} by {a}: {d} {summ}")
         inc = db.execute("SELECT state, opened_minute, evidence, closed_minute FROM incidents WHERE wid=?",
                          (wid,)).fetchall()

@@ -27,7 +27,7 @@ import numpy as np
 
 from .. import policy, settings
 from ..model import Model
-from ..stats import holm, two_prop
+from ..stats import holm, norm_sf, two_prop
 from . import active_leads, backoff_ok, idx, inflight_keys, intent, set_backoff, stepped
 
 DIMS = ("welcome_message", "voice")
@@ -267,30 +267,33 @@ class ExperimentPlanner:
                                "rel": round(t["rel"], 4), "guardrail": g}
         with m.s.tx():
             self._save(m, e, stats=e["stats"])
-        # Signal B (power): the champion's own engagement now vs its first day after promotion. The holdout is
-        # too small to see a gradual decay quickly, but the champion carries most of the traffic. Vetoed if the
-        # holdout fell as much (a base shift, e.g. a prompt change), and only acted on once the champion is no
-        # better than the holdout's rate since promotion, so the rollback itself is not a step down.
-        ref_end = e["promoted"] + 1440
+        # Signal B (power): the champion's own engagement over the last 24h vs what it showed in the experiment.
+        # The holdout is too small to see a gradual decay quickly, but the champion carries most of the traffic.
+        # Vetoed if the holdout fell as much (a base shift, e.g. a prompt change), and only acted on once the
+        # champion is no better than the holdout over the same 24h. The first step is a 50/50 demotion.
         drift = None
-        if m.now - settings.DECAY_WINDOW_MIN >= ref_end:
-            cref = self._arm_stats(m, wid, dim, e["promoted"], ref_end)
-            call = self._arm_stats(m, wid, dim, e["promoted"])
-            c0 = cref.get(champ, {"conn": 0, "eng": 0})
-            h0 = cref.get(hold, {"conn": 0, "eng": 0})
-            hall = call.get(hold, {"conn": 0, "eng": 0})
-            dc = two_prop(c["eng"], c["conn"], c0["eng"], c0["conn"])
-            dh = two_prop(h["eng"], h["conn"], h0["eng"], h0["conn"])
-            vs_hold = two_prop(c["eng"], c["conn"], hall["eng"], hall["conn"])
-            drift = {"champion_now": dc["p1"], "champion_ref": dc["p2"], "z": round(dc["z"], 2),
-                     "holdout_change": round(dh["diff"], 4), "champion_vs_holdout_since_promotion":
-                         round(vs_hold["diff"], 4)}
-            e["stats"]["watch"]["drift"] = drift
-            with m.s.tx():
-                self._save(m, e, stats=e["stats"])
-            if dc["p_worse"] < settings.DECAY_DRIFT_ALPHA and dh["diff"] > dc["diff"] / 2 and vs_hold["z"] <= -1.0 \
-                    and self._monitor_due(m, e):
-                return self._decay(m, wid, dim, e, champ, hold, since, t, "drift")
+        if m.now - settings.DECAY_WINDOW_MIN >= e["promoted"] + 360:
+            # reference = the experiment that crowned it (before promotion): the champion as an arm, and the
+            # control at its full experimental share (precise). The champion's reference uses the lower 80% bound
+            # of its rate, so winner's curse does not look like decay.
+            ref = self._arm_stats(m, wid, dim, e["start"], e["promoted"])
+            c0 = ref.get(champ, {"conn": 0, "eng": 0})
+            h0 = ref.get(hold, {"conn": 0, "eng": 0})
+            if c0["conn"] >= 100 and h0["conn"] >= 100:
+                p0 = c0["eng"] / c0["conn"]
+                lb = p0 - 0.8416 * (p0 * (1 - p0) / c0["conn"]) ** 0.5
+                ph = c["eng"] / c["conn"] if c["conn"] else lb
+                se = ((ph * (1 - ph) / max(c["conn"], 1)) + (p0 * (1 - p0) / c0["conn"])) ** 0.5
+                z = (ph - lb) / se if se > 0 else 0.0
+                dh = two_prop(h["eng"], h["conn"], h0["eng"], h0["conn"])
+                drift = {"champion_now": round(ph, 4), "champion_ref_lb80": round(lb, 4), "z": round(z, 2),
+                         "holdout_change": round(dh["diff"], 4), "champion_vs_holdout_24h": round(t["diff"], 4)}
+                e["stats"]["watch"]["drift"] = drift
+                with m.s.tx():
+                    self._save(m, e, stats=e["stats"])
+                if norm_sf(-z) < settings.DECAY_DRIFT_ALPHA and dh["diff"] > (ph - lb) / 2 and t["diff"] <= 0 \
+                        and self._monitor_due(m, e):
+                    return self._decay(m, wid, dim, e, champ, hold, since, t, "drift")
         if h["conn"] < settings.DECAY_MIN_CONN:
             return None
         if (t["p_worse"] < settings.DECAY_ALPHA or not gok) and self._monitor_due(m, e):

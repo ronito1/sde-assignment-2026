@@ -80,14 +80,20 @@ class Controller:
             self._handle_config_events()
             self.gov.poll()
             hourly = self.m.now - last_plan >= settings.PLAN_EVERY_MIN
+            timing = {}
             for wid in self.m.wf:
                 intents = []
-                intents += self.incidents.plan(self.m, wid, self.gov)
-                intents += self.dids.plan(self.m, wid, self.gov)
-                if hourly:
-                    intents += self.schedule.plan(self.m, wid, self.gov)
-                    intents += self.experiments.plan(self.m, wid, self.gov)
+                planners = [self.incidents, self.dids] + ([self.schedule, self.experiments] if hourly else [])
+                for p in planners:
+                    tp = time.time()
+                    intents += p.plan(self.m, wid, self.gov)
+                    timing[p.kind] = timing.get(p.kind, 0.0) + time.time() - tp
+                tp = time.time()
                 self.gov.flush(wid, intents)
+                timing["governance"] = timing.get("governance", 0.0) + time.time() - tp
+            if sum(timing.values()) > 30:
+                log.warning("slow decision pass at %s: %s", self.m.fmt(self.m.now),
+                            {k: round(v, 1) for k, v in timing.items()})
             if hourly:
                 last_plan = self.m.now
                 with self.store.tx():
