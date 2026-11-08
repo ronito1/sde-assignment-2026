@@ -1,5 +1,7 @@
 # Outcome-First Agent Loop
 
+**Submitted by Ronit Pathak · 8 November 2026, 4:16 PM IST**
+
 An always-on controller for outbound voice agents. For every workflow it watches the calls, decides what to
 improve, gets the client's permission, applies the change, checks it worked, and records why. Nothing changes
 on a client's agent without passing governance.
